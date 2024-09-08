@@ -1,0 +1,17 @@
+{
+    "clangd.arguments": [
+        "--background-index",
+        "--compile-commands-dir=${workspaceFolder}/build",
+        "-j=4",
+        "--clang-tidy",
+        "--clang-tidy-checks=performance-*,bugprone-*",
+        "--all-scopes-completion",
+        "--completion-style=detailed",
+        "--header-insertion=iwyu",
+        "--pch-storage=disk",
+    ],
+    "cmake.generator": "Unix Makefiles",
+    "files.associations": {
+        "system_error": "cpp"
+    }
+}
