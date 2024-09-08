@@ -13,5 +13,8 @@
     "cmake.generator": "Unix Makefiles",
     "files.associations": {
         "system_error": "cpp"
-    }
+    },
+    "cSpell.words": [
+        "epfd"
+    ]
 }

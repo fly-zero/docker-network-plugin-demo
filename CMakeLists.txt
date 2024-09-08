@@ -8,4 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(test-net)
 
-add_executable(test-net server.cpp main.cpp)
+add_executable(test-net
+    src/event_dispatcher.cpp
+    src/server.cpp
+    src/main.cpp)
