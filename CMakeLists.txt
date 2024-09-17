@@ -8,7 +8,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(test-net)
 
+# 添加子目录
+add_subdirectory(external/llhttp)
+
+# 添加可执行文件
 add_executable(test-net
     src/event_dispatcher.cpp
     src/server.cpp
     src/main.cpp)
+
+# 链接库
+target_link_libraries(test-net boost_context llhttp_shared)
+
+# 设置 include 目录
+target_include_directories(test-net
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/llhttp/include)

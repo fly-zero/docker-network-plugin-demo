@@ -1,85 +1,238 @@
 #pragma once
 
-class server
+#include "event_dispatcher.h"
+
+#include <memory>
+
+#include <boost/coroutine2/coroutine.hpp>
+#include <boost/coroutine2/fixedsize_stack.hpp>
+#include <boost/intrusive/list.hpp>
+#include <boost/intrusive/list_hook.hpp>
+
+class server;
+
+/**
+ * @brief the connection
+ */
+class connection
+    : public io_listener
 {
+    friend server;
+
+    enum class status : uint8_t
+    {
+        running,
+        waiting_on_read,
+        waiting_on_write,
+        done
+    };
+
+    using list_hook = boost::intrusive::list_member_hook<>;
+    using stack     = boost::coroutines2::fixedsize_stack;
+    using push_type = boost::coroutines2::coroutine<void>::push_type;
+    using pull_type = boost::coroutines2::coroutine<void>::pull_type;
+
+    struct http_request;
+
+public:
+    /**
+     * @brief Move constructor is deleted
+     */
+    connection(connection &&) noexcept = delete;
+
+    /**
+     * @brief Move assignment is deleted
+     */
+    void operator=(connection &&) noexcept = delete;
+
+    /**
+     * @brief Copy constructor is deleted
+     */
+    connection(const connection &) = delete;
+
+    /**
+     * @brief Copy assignment is deleted
+     */
+    void operator=(const connection &) = delete;
+
+protected:
+    /**
+     * @brief Construct a new connection object
+     *
+     * @param server the server object
+     * @param fd the file descriptor
+     * @param stack_size the stack size
+     */
+    connection(server & server, int fd, size_t stack_size);
+
+    /**
+     * @brief Destroy the connection object
+     */
+    ~connection() = default;
+
+    /**
+     * @brief The on read callback
+     */
+    void on_read() override;
+
+    /**
+     * @brief The on write callback
+     */
+    void on_write() override;
+
+    /**
+     * @brief Run the connection coroutine
+     */
+    void run();
+
+    /**
+     * @brief Suspend the connection coroutine
+     *
+     * @param status the status
+     */
+    void yield(status status);
+
+    /**
+     * @brief Resume the connection coroutine
+     */
+    void resume();
+
+    /**
+     * @brief Receive data from the socket
+     *
+     * @param buf the buffer
+     * @param len the buffer length
+     * @return ssize_t the received data length
+     */
+    ssize_t recv(void * buf, size_t len);
+
+    /**
+     * @brief Receive the http request
+     *
+     * @param req the http request
+     */
+    void recv_request(http_request &req);
+
+    /**
+     * @brief Allocate a new connection object
+     *
+     * @param server the server object
+     * @param sock the socket file descriptor
+     * @param stack_size the stack size
+     * @return connection* the pointer to the connection object
+     */
+    static connection * allocate(server &server, int sock, size_t stack_size);
+
+    /**
+     * @brief Deallocate the connection object
+     *
+     * @param conn the pointer to the connection object
+     */
+    static void deallocate(connection * conn);
+
+private:
+    list_hook  list_hook_{ };               ///< the list hook
+    size_t     stack_size_{ 0 };            ///< the stack size
+    push_type  source_;                     ///< the push type
+    pull_type *sink_{ nullptr };            ///< the pull type
+    status     status_{ status::running };  ///< the status
+    server    &server_;                     ///< the server
+};
+
+/**
+ * @brief The server
+ */
+class server
+    : public io_listener
+{
+    using connection_list = boost::intrusive::list
+        < connection
+        , boost::intrusive::member_hook
+            < connection
+            , connection::list_hook
+            , &connection::list_hook_
+            >
+        >;
+
+    using pull_type = boost::coroutines2::coroutine<void>::pull_type;
+
 public:
     /**
      * @brief Construct a new server object
-     */
-    server() = default;
-
-    /**
-     * @brief Construct a new server object
      *
+     * @param dispatcher the event dispatcher
      * @param path the unix socket path
      */
-    explicit server(const char * path);
+    server(event_dispatcher &dispatcher, const char * path);
 
     /**
      * @brief Destroy the server object
      */
-    ~server();
+    ~server() = default;
 
     /**
-     * @brief Move constructor
-     *
-     * @param other the other server object
+     * @brief Move constructor is deleted
      */
-    server(server && other) noexcept;
+    server(server && other) noexcept = delete;
 
     /**
-     * @brief Move assignment
-     *
-     * @param other the other server object
-     * @return server& the reference to this object
+     * @brief Move assignment is deleted
      */
-    server & operator=(server && other) noexcept;
+    server & operator=(server && other) noexcept = delete;
 
     /**
-     * @brief Check if the server object is valid
-     *
-     * @return true if the server object is valid
-     * @return false if the server object is invalid
+     * @brief get the event dispatcher
      */
-    operator bool() const;
-
-    /**
-     * @brief Check if the server object is invalid
-     *
-     * @return true if the server object is invalid
-     * @return false if the server object is valid
-     */
-    bool operator!() const;
+    event_dispatcher &dispatcher() const;
 
 protected:
     /**
-     * @brief Construct a new server object
-     *
-     * @param sock the socket file descriptor
+     * @brief The on read callback
      */
-    explicit server(int sock);
+    void on_read() override;
+
+    /**
+     * @brief The on write callback
+     */
+    void on_write() override;
+
+    /**
+     * @brief Get the socket file descriptor
+     *
+     * @return int the socket file descriptor
+     */
+    int sock() const;
 
 private:
-    int sock_{ -1 };  ///< the socket file descriptor
+    pull_type        *sink_{ nullptr };  ///< the push type
+    connection_list   conn_list_{ };     ///< the connection list
+    event_dispatcher &dispatcher_;       ///< the event dispatcher
 };
 
-inline server::server(server && other) noexcept
-    : sock_{ other.sock_ }
+inline void connection::yield(status status)
 {
-    other.sock_ = -1;
+    // set the status
+    status_ = status;
+
+    // give up the cpu
+    (*sink_)();
 }
 
-inline server::server(int sock)
-    : sock_{ sock }
+inline void connection::resume()
 {
+    // set the status
+    status_ = status::running;
+
+    // take back the cpu
+    source_();
 }
 
-inline server::operator bool() const
+inline event_dispatcher & server::dispatcher() const
 {
-    return sock_ >= 0;
+    return dispatcher_;
 }
 
-inline bool server::operator!() const
+inline int server::sock() const
 {
-    return sock_ < 0;
+    return fd();
 }
