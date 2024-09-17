@@ -105,6 +105,7 @@ bool event_dispatcher::subscribe(loop_listener &listener)
         }
     }
 
+    on_loop_list_.push_back(listener);
     return true;
 }
 
