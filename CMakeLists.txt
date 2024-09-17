@@ -15,7 +15,8 @@ add_subdirectory(external/llhttp)
 add_executable(test-net
     src/event_dispatcher.cpp
     src/server.cpp
-    src/main.cpp)
+    src/main.cpp
+    src/http_request.cpp)
 
 # 链接库
 target_link_libraries(test-net boost_context llhttp_shared)

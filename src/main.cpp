@@ -19,5 +19,10 @@ int main(int argc, char ** argv)
         return 1;
     }
 
+    if (!dispatcher.subscribe(svr)) {
+        std::cerr << "cannot subscribe loop event for server" << std::endl;
+        return 1;
+    }
+
     dispatcher.run();
 }

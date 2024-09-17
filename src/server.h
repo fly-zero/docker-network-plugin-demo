@@ -24,15 +24,13 @@ class connection
         running,
         waiting_on_read,
         waiting_on_write,
-        done
+        closing
     };
 
     using list_hook = boost::intrusive::list_member_hook<>;
     using stack     = boost::coroutines2::fixedsize_stack;
     using push_type = boost::coroutines2::coroutine<void>::push_type;
     using pull_type = boost::coroutines2::coroutine<void>::pull_type;
-
-    struct http_request;
 
 public:
     /**
@@ -107,11 +105,13 @@ protected:
     ssize_t recv(void * buf, size_t len);
 
     /**
-     * @brief Receive the http request
+     * @brief Send data to the socket
      *
-     * @param req the http request
+     * @param buf the buffer
+     * @param len the buffer length
+     * @return ssize_t the sent data length
      */
-    void recv_request(http_request &req);
+    ssize_t send(const void * buf, size_t len);
 
     /**
      * @brief Allocate a new connection object
@@ -144,6 +144,7 @@ private:
  */
 class server
     : public io_listener
+    , public loop_listener
 {
     using connection_list = boost::intrusive::list
         < connection
@@ -185,6 +186,13 @@ public:
      */
     event_dispatcher &dispatcher() const;
 
+    /**
+     * @brief Move the connection to the closing list
+     *
+     * @param conn the connection object
+     */
+    void move_to_closing(connection &conn);
+
 protected:
     /**
      * @brief The on read callback
@@ -197,6 +205,11 @@ protected:
     void on_write() override;
 
     /**
+     * @brief The on loop callback
+     */
+    void on_loop() override;
+
+    /**
      * @brief Get the socket file descriptor
      *
      * @return int the socket file descriptor
@@ -205,7 +218,8 @@ protected:
 
 private:
     pull_type        *sink_{ nullptr };  ///< the push type
-    connection_list   conn_list_{ };     ///< the connection list
+    connection_list   active_list_{ };   ///< the active connection list
+    connection_list   closing_list_{ };  ///< the closing connection list
     event_dispatcher &dispatcher_;       ///< the event dispatcher
 };
 
@@ -230,6 +244,12 @@ inline void connection::resume()
 inline event_dispatcher & server::dispatcher() const
 {
     return dispatcher_;
+}
+
+inline void server::move_to_closing(connection & conn)
+{
+    // move the connection to the closing list
+    closing_list_.splice(closing_list_.begin(), active_list_, active_list_.iterator_to(conn));
 }
 
 inline int server::sock() const

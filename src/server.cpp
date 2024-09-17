@@ -1,6 +1,4 @@
 #include "server.h"
-#include "event_dispatcher.h"
-#include "llhttp.h"
 
 #include <sys/fcntl.h>
 #include <sys/mman.h>
@@ -12,12 +10,8 @@
 
 #include <system_error>
 
-#include <llhttp.h>
-
-struct connection::http_request {
-    bool is_completed{ false };
-    std::string url;
-};
+#include "event_dispatcher.h"
+#include "http_request.h"
 
 /**
  * @brief listen on \b path
@@ -59,38 +53,21 @@ inline int listen(const char * path)
     return sock;
 }
 
-/**
- * @brief URL callback for HTTP parser
- *
- * @param parser HTTP parser
- * @param data URL data
- * @param size URL size
- * @return int return HPE_OK if no error
- */
-static int on_http_url(llhttp_t *parser, const char *data, size_t size)
+template <typename Receiver>
+void recv_http_request(http_request &request, Receiver &&receiver)
 {
-    return HPE_OK;
-}
+    while (!request.is_completed()) {
+        char buf[1024];
+        auto const n = std::forward<Receiver>(receiver)(buf, sizeof buf);
+        if (n == 0) {
+            throw std::runtime_error{ "connection closed by peer" };
+        }
 
-/**
- * @brief HTTP message complete callback for HTTP parser
- *
- * @param parser HTTP parser
- * @return int return HPE_OK if no error
- */
-static int on_http_message_complete(llhttp_t *parser)
-{
-    return HPE_OK;
-}
-
-auto inline parse_http(llhttp_t &parser, const void * buf, size_t len) -> int
-{
-    auto const err = llhttp_execute(&parser, static_cast<const char *>(buf), len);
-    if (err != HPE_OK) {
-        return -1;
+        auto const err = request.parse(buf, n);
+        if (err < 0) {
+            throw std::runtime_error{ "cannot parse http request" };
+        }
     }
-
-    return 0;
 }
 
 connection::connection(server & server, int fd, size_t stack_size)
@@ -106,19 +83,39 @@ connection::connection(server & server, int fd, size_t stack_size)
 
 void connection::on_read()
 {
-    resume();
+    if (status_ == status::waiting_on_read) {
+        resume();
+    }
 }
 
 void connection::on_write()
 {
-    resume();
+    if (status_ == status::waiting_on_write) {
+        resume();
+    }
 }
 
 void connection::run()
 {
-    // receive http request
-    http_request req;
-    recv_request(req);
+    try{
+        // receive http request
+        http_request request;
+        recv_http_request(request, [this](void * buf, size_t len) {
+            return recv(buf, len);
+        });
+
+        // send http response
+        std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+        send(response.data(), response.size());
+    } catch (std::exception const & e) {
+        // TODO: log error
+    }
+
+    // close connection
+    server_.move_to_closing(*this);
+
+    // set status
+    status_ = status::closing;
 }
 
 ssize_t connection::recv(void * buf, size_t len)
@@ -134,38 +131,25 @@ ssize_t connection::recv(void * buf, size_t len)
     }
 }
 
-inline void connection::recv_request(http_request &req)
+ssize_t connection::send(const void * buf, size_t len)
 {
-    // create http parser settings
-    constexpr llhttp_settings_t settings = {
-        .on_url = on_http_url,
-        .on_message_complete = on_http_message_complete,
-    };
+    auto curr = static_cast<const char *>(buf);
+    auto const end = curr + len;
 
-    // create http parser
-    llhttp_t parser{ };
-    llhttp_init(&parser, HTTP_REQUEST, &settings);
-
-    // set http parser's private data
-    http_request request{ };
-    parser.data = &request;
-
-    while (true) {
-        char buf[1024];
-        auto const n = recv(buf, sizeof buf);
-        if (n == 0) {
-            break; // TODO: connection closed by peer
-        }
-
-        auto const result = parse_http(parser, buf, n);
-        if (result == 0) {
-            break;
-        }
-
-        if (result == -1) {
-            throw std::runtime_error{ "cannot parse http request" };
+    while (curr < end) {
+        auto const n = ::send(fd(), curr, end - curr, 0);
+        if (n > 0) {
+            curr += n;
+        } else if (n == 0) {
+            throw std::runtime_error{ "cannot send data" };
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            yield(status::waiting_on_write);
+        } else {
+            throw std::system_error{ errno, std::system_category(), "cannot send data" };
         }
     }
+
+    return len;
 }
 
 connection * connection::allocate(server &server, int sock, size_t stack_size)
@@ -247,7 +231,7 @@ void server::on_read()
 
         // create client object
         auto const conn = connection::allocate(*this, client_sock, 256 * 1024);
-        conn_list_.push_back(*conn);
+        active_list_.push_back(*conn);
 
         // subscribe client
         if (!dispatcher_.subscribe(*conn, event_dispatcher::readable | event_dispatcher::writable)) {
@@ -262,4 +246,16 @@ void server::on_read()
 
 void server::on_write()
 {
+}
+
+void server::on_loop()
+{
+    // destroy closing connections
+    while (!closing_list_.empty()) {
+        auto & conn = closing_list_.front();
+        dispatcher_.unsubscribe(conn);
+        closing_list_.pop_front_and_dispose([](connection * conn) {
+            connection::deallocate(conn);
+        });
+    }
 }
