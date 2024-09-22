@@ -1,5 +1,6 @@
 #include "server.h"
 
+#include <netinet/in.h>
 #include <sys/fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -49,8 +50,47 @@ inline int listen(const char * path)
     return sock;
 }
 
+inline int listen(unsigned short port)
+{
+    // create socket
+    auto const sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        throw std::system_error{ errno, std::system_category(), "cannot create socket" };
+    }
+
+    // set socket non-blocking
+    if (fcntl(sock, F_SETFL, fcntl(sock, F_GETFL) | O_NONBLOCK) < 0) {
+        close(sock);
+        throw std::system_error{ errno, std::system_category(), "cannot set socket non-blocking" };
+    }
+
+    // bind socket
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+    if (bind(sock, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+        close(sock);
+        throw std::system_error{ errno, std::system_category(), "cannot bind socket" };
+    }
+
+    // listen on socket
+    if (listen(sock, 128) < 0) {
+        close(sock);
+        throw std::system_error{ errno, std::system_category(), "cannot listen on socket" };
+    }
+
+    return sock;
+}
+
 server::server(event_dispatcher &dispatcher, const char * path)
     : io_listener{ listen(path) }
+    , dispatcher_{ dispatcher }
+{
+}
+
+server::server(event_dispatcher &dispatcher, unsigned short port)
+    : io_listener{ listen(port) }
     , dispatcher_{ dispatcher }
 {
 }

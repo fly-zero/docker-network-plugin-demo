@@ -2,7 +2,19 @@
 #include "server.h"
 
 #include <cassert>
+
 #include <iostream>
+
+inline bool is_all_digit(const char * str)
+{
+    for (auto p = str; *p; ++p) {
+        if (!isdigit(*p)) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 int main(int argc, char ** argv)
 {
@@ -12,8 +24,18 @@ int main(int argc, char ** argv)
     std::cout << "dispatcher created" << std::endl;
 
     // create server
-    server svr{ dispatcher, argv[1] };
-    assert(svr);
+    char server_storage[sizeof(server)] __attribute__((aligned(alignof(server))));
+
+    // init server
+    if (is_all_digit(argv[1])) {
+        // init server with port
+        ::new (server_storage) server{ dispatcher, static_cast<unsigned short>(atoi(argv[1])) };
+    } else {
+        // init server with path
+        ::new (server_storage) server{ dispatcher, argv[1] };
+    }
+
+    auto & svr = *reinterpret_cast<server *>(server_storage);
     std::cout << "server created" << std::endl;
 
     // docker network plugin api, refer: https://github.com/moby/moby/blob/master/libnetwork/docs/remote.md
@@ -119,6 +141,9 @@ int main(int argc, char ** argv)
 
     // unsubscribe server io event
     dispatcher.unsubscribe(static_cast<io_listener &>(svr));
+
+    // destroy server
+    svr.~server();
 
     return 0;
 }

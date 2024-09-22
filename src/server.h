@@ -52,6 +52,14 @@ public:
     server(event_dispatcher &dispatcher, const char * path);
 
     /**
+     * @brief Construct a new server object
+     *
+     * @param dispatcher the event dispatcher
+     * @param port the port number
+     */
+    server(event_dispatcher &dispatcher, unsigned short port);
+
+    /**
      * @brief Destroy the server object
      */
     ~server() = default;
