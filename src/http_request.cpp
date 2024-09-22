@@ -81,6 +81,8 @@ int http_request::on_headers_complete(llhttp_t *parser)
 
 int http_request::on_body(llhttp_t *parser, const char *data, size_t size)
 {
+    auto & request = *static_cast<http_request *>(parser->data);
+    request.body_.append(data, size);
     return HPE_OK;
 }
 

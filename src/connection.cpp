@@ -4,6 +4,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <iostream>
+#include <system_error>
+
 #include "http_request.h"
 #include "server.h"
 
@@ -58,11 +61,43 @@ void connection::run()
             return recv(buf, len);
         });
 
-        // send http response
-        std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-        send(response.data(), response.size());
+        // find uri handler
+        auto const handler = server_.find_uri_handler(request.url());
+        if (handler) {
+            // create http response
+            http_response response;
+            auto const ok = (*handler)(this, request, &response);
+
+            if (ok) {
+                // construct http response header
+                char buf[1024];
+                auto const n = snprintf(buf, sizeof buf, "HTTP/1.1 %u OK\r\nContent-Length: %zu\r\n\r\n%s",
+                    response.status(), response.body().size(), response.body().data());
+
+                // send http response header
+                send(buf, n);
+
+                // send http response body
+                send(response.body().data(), response.body().size());
+            } else {
+                // send http response
+                std::string resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+                send(resp.data(), resp.size());
+            }
+
+        } else {
+            // send http response
+            std::string resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+            send(resp.data(), resp.size());
+        }
+    } catch (std::system_error const & e) {
+        std::cerr << "system error: " << e.what() << std::endl;
+    } catch (std::runtime_error const & e) {
+        std::cerr << "runtime error: " << e.what() << std::endl;
     } catch (std::exception const & e) {
-        // TODO: log error
+        std::cerr << "exception: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "unknown exception" << std::endl;
     }
 
     // close connection

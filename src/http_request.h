@@ -74,6 +74,7 @@ protected:
 private:
     llhttp_t    parser_{ };
     std::string url_{ };
+    std::string body_{ };
     bool        is_completed_{ false };
 
     static const llhttp_settings_t settings_;
