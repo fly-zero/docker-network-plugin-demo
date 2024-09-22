@@ -25,4 +25,10 @@ int main(int argc, char ** argv)
     }
 
     dispatcher.run();
+
+    dispatcher.unsubscribe(static_cast<loop_listener &>(svr));
+
+    dispatcher.unsubscribe(static_cast<io_listener &>(svr));
+
+    return 0;
 }

@@ -3,6 +3,8 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
+#include <cerrno>
+
 io_listener::~io_listener()
 {
     if (fd_ >= 0) {
@@ -58,6 +60,9 @@ void event_dispatcher::run()
     while (running_) {
         auto const n = epoll_wait(epfd_, events, sizeof(events) / sizeof(events[0]), 50);
         if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             break;
         }
 
