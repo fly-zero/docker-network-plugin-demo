@@ -109,15 +109,17 @@ void connection::run()
 
 ssize_t connection::recv(void * buf, size_t len)
 {
-    auto const n = ::recv(fd(), buf, len, 0);
-    if (n >= 0) {
-        return n;
-    } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        yield(status::waiting_on_read);
-        return 0;
-    } else {
-        throw std::system_error{ errno, std::system_category(), "cannot receive data" };
-    }
+    do {
+        auto const n = ::recv(fd(), buf, len, 0);
+        if (n >= 0) {
+            return n;
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            yield(status::waiting_on_read);
+            continue;
+        } else {
+            throw std::system_error{ errno, std::system_category(), "cannot receive data" };
+        }
+    } while (true);
 }
 
 ssize_t connection::send(const void * buf, size_t len)
