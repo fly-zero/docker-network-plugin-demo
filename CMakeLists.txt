@@ -15,6 +15,7 @@ add_subdirectory(external/llhttp)
 add_executable(test-net
     src/event_dispatcher.cpp
     src/server.cpp
+    src/connection.cpp
     src/main.cpp
     src/http_request.cpp)
 
