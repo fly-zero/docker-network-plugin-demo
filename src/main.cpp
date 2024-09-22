@@ -90,6 +90,15 @@ int main(int argc, char ** argv)
         return true;
     }, nullptr);
 
+    // endpoint operational info
+    // register network driver endpoint operational info handler
+    svr.register_uri_handler("/NetworkDriver.EndpointOperInfo", [](void *, const http_request &request, http_response * response) {
+        std::cout << "request: " << request.url() << std::endl;
+        response->status(200);
+        response->body() = R"({"Value":{}})";
+        return true;
+    }, nullptr);
+
     // subscribe server io event
     if (!dispatcher.subscribe(svr, event_dispatcher::readable)) {
         std::cerr << "cannot subscribe io event for server" << std::endl;
