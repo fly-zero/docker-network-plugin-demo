@@ -99,7 +99,9 @@ int main(int argc, char ** argv)
     svr.register_uri_handler("/NetworkDriver.Join", [](void *, const http_request &request, http_response * response) {
         std::cout << "request: " << request.url() << std::endl;
         response->status(200);
-        response->body() = R"({"InterfaceName":{"SrcName":"ens160","DstPrefix":"eth"}})";
+        response->body() = R"({"InterfaceName":{"SrcName":"ens160","DstPrefix":"eth"}})"; // Docker libNetwork will move host interface
+                                                                                          // with name "ens160" to container, and rename
+                                                                                          // it to "ethN", where N is a index number.
         return true;
     }, nullptr);
 
