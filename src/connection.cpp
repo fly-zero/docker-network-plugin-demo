@@ -27,7 +27,7 @@ void recv_http_request(http_request &request, Receiver &&receiver)
 connection::connection(server & server, int fd, size_t stack_size)
     : io_listener{ fd }
     , stack_size_{ stack_size }
-    , source_{ [this](pull_type & sink) {
+    , source_{ get_stack() , [this](pull_type & sink) {
         this->sink_ = &sink;
         this->run();
     } }
@@ -162,4 +162,10 @@ void connection::deallocate(connection * conn)
 
     // deallocate memory
     munmap(mem, total_size);
+}
+
+inline co_stack connection::get_stack()
+{
+    auto const vp = reinterpret_cast<char *>(this) - stack_size_;
+    return co_stack{ vp, stack_size_ };
 }

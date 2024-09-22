@@ -1,9 +1,9 @@
 #pragma once
 #include <boost/coroutine2/coroutine.hpp>
-#include <boost/coroutine2/fixedsize_stack.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
+#include "co_stack.h"
 #include "event_dispatcher.h"
 
 class server;
@@ -126,6 +126,13 @@ protected:
      * @param conn the pointer to the connection object
      */
     static void deallocate(connection * conn);
+
+    /**
+     * @brief Get the stack object
+     *
+     * @return co_stack the stack object
+     */
+    co_stack get_stack();
 
 private:
     list_hook  list_hook_{ };               ///< the list hook
